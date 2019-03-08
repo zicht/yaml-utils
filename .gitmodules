@@ -1,0 +1,8 @@
+[submodule "lib/yaml-2.3"]
+	path = lib/yaml-2.3
+	url = git@github.com:symfony/yaml.git
+	branch = 2.3
+[submodule "lib/yaml-4.2"]
+	path = lib/yaml-4.2
+	url = git@github.com:symfony/yaml.git
+	branch = 4.2

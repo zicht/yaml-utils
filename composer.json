@@ -1,0 +1,27 @@
+{
+    "name": "zicht/yaml-utils",
+    "type": "command",
+    "minimum-stability": "stable",
+    "require": {
+        "php": ">=7.2",
+        "symfony/console": "^4.2",
+        "symfony/finder": "^4.2",
+        "symfony/process": "^4.2"
+    },
+    "authors": [
+        {
+            "name": "Philip Bergman",
+            "email": "philip@zicht.nl"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "": "src"
+        }
+    },
+    "scripts": {
+        "post-install-cmd": [
+            "git submodule update --init"
+        ]
+    }
+}
