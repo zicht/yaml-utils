@@ -8,6 +8,7 @@
         "symfony/finder": "^4.2",
         "symfony/process": "^4.2"
     },
+    "description": "an yaml helper library for auto-fixing files to new yaml standard",
     "authors": [
         {
             "name": "Philip Bergman",
@@ -19,8 +20,12 @@
             "": "src"
         }
     },
+    "license": "MIT",
     "scripts": {
         "post-install-cmd": [
+            "git submodule update --init"
+        ],
+        "post-update-cmd": [
             "git submodule update --init"
         ]
     }
