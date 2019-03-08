@@ -5,7 +5,6 @@
  */
 namespace App\Command;
 
-use App\Application;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -38,11 +37,78 @@ class YamlFixCommand  extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        /** @var Application $app */
-        $app = $this->getApplication();
-        $app->getLoader()->addPsr4('Symfony\Component\Yaml\\', dirname(__FILE__) . '/../../../lib/yaml-4.2/');
-
+        $this->getApplication()->getLoader()->addPsr4('Symfony\Component\Yaml\\', dirname(__FILE__) . '/../../../lib/yaml-4.2/');
         $files = [];
+
+        /** @var \Symfony\Component\Finder\SplFileInfo $file */
+        foreach ($this->getFinder($input) as $file) {
+            try {
+                Yaml::parse($file->getContents());
+                if ($output->isVerbose()) {
+                    $output->writeln(sprintf('file %s <info>ok</info>', (string)$file));
+                }
+            } catch (ParseException $e) {
+                $output->writeln(sprintf('<fg=red>error parsing file %s</>', (string)$file));
+                $files[] = $file;
+            }
+        }
+
+        if (!$input->getOption('dry-run') && (bool)count($files)) {
+            $this->updateFiles($input, $output, $files);
+        }
+    }
+
+    /**
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @param string[] ...$file
+     */
+    private function updateFiles(InputInterface $input, OutputInterface $output, string ...$file)
+    {
+        $process = new Process(
+            sprintf(
+                '%s dump-file %s',
+                $this->getApplication()->getBinName(),
+                implode(
+                    ' ',
+                    array_map(
+                        'escapeshellarg',
+                        $file
+                    )
+                )
+            )
+        );
+
+        if ($process->run() !== 0) {
+            throw new \RuntimeException($process->getErrorOutput());
+        } else {
+            if (false === $data = unserialize($process->getOutput())) {
+                throw new \RuntimeException('Failed unserialize dump output');
+            }
+            if (isset($data[1])) {
+                foreach ($data[1] as $file => $error) {
+                    $output->writeln(sprintf('<fg=red>failed to dump file: %s, %s</>', $file, $error));
+                }
+            }
+            if (isset($data[0])) {
+                foreach ($data[0] as $file => $data) {
+                    $output->write(sprintf('updating file %s', $file));
+                    if (false === file_put_contents($file, Yaml::dump($data, $input->getOption('indent')))) {
+                        $output->writeln('<fg=red> failed</>');
+                    } else {
+                        $output->writeln('<info> ok</>');
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @param InputInterface $input
+     * @return Finder
+     */
+    private function getFinder(InputInterface $input) :Finder
+    {
         $finder = (new Finder())
             ->name('/\.y(a)?ml$/')
             ->in($input->getOption('src'))
@@ -56,45 +122,6 @@ class YamlFixCommand  extends Command
             $finder->notName($excluded);
         }
 
-        /** @var \Symfony\Component\Finder\SplFileInfo $file */
-        foreach ($finder as $file) {
-            try {
-                Yaml::parse($file->getContents());
-                if ($output->isVerbose()) {
-                    $output->writeln(sprintf('file %s <info>ok</info>', (string)$file));
-                }
-            } catch (ParseException $e) {
-                $output->writeln(sprintf('<fg=red>error parsing file %s</>', (string)$file));
-                $files[] = $file;
-            }
-        }
-
-        if (!$input->getOption('dry-run') && (bool)count($files)) {
-
-            $process = new Process(sprintf('%s dump-file %s', $app->getBinName(), implode(' ', $files)));
-
-            if ($process->run() !== 0) {
-                throw new \RuntimeException($process->getErrorOutput());
-            } else {
-                if (false === $data = unserialize($process->getOutput())) {
-                    throw new \RuntimeException('Failed unserialize dump output');
-                }
-                if (isset($data[1])) {
-                    foreach ($data[1] as $file => $error) {
-                        $output->writeln(sprintf('<fg=red>failed to dump file: %s, %s</>', $file, $error));
-                    }
-                }
-                if (isset($data[0])) {
-                    foreach ($data[0] as $file => $data) {
-                        $output->write(sprintf('updating file %s', $file));
-                        if (false === file_put_contents($file, Yaml::dump($data, $input->getOption('indent')))) {
-                            $output->writeln('<fg=red> failed</>');
-                        } else {
-                            $output->writeln('<info> ok</>');
-                        }
-                    }
-                }
-            }
-        }
+        return $finder;
     }
 }
