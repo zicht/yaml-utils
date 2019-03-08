@@ -28,6 +28,7 @@ class YamlFixCommand  extends Command
             ->setDescription('fix or check all yaml files in the given scr dir')
             ->addOption('src', null, InputOption::VALUE_REQUIRED, 'the default source location', getcwd())
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'do an dry-run and print wrong files')
+            ->addOption('indent', null, InputOption::VALUE_REQUIRED, 'The level where you switch to inline YAML', 8)
             ->addOption('exclude', null, InputOption::VALUE_IS_ARRAY|InputOption::VALUE_REQUIRED, 'exclude pattern for directories')
             ->addOption('exclude-file', null, InputOption::VALUE_IS_ARRAY|InputOption::VALUE_REQUIRED, 'exclude pattern for files');
     }
@@ -78,26 +79,18 @@ class YamlFixCommand  extends Command
                 if (false === $data = unserialize($process->getOutput())) {
                     throw new \RuntimeException('Failed unserialize dump output');
                 }
-
                 if (isset($data[1])) {
                     foreach ($data[1] as $file => $error) {
                         $output->writeln(sprintf('<fg=red>failed to dump file: %s, %s</>', $file, $error));
                     }
                 }
-
                 if (isset($data[0])) {
                     foreach ($data[0] as $file => $data) {
-                        if ($output->isVerbose()) {
-                            $output->write(sprintf('updating file %s', $file));
-                        }
-                        if (false === file_put_contents($file, Yaml::dump($data))) {
-                            if ($output->isVerbose()) {
-                                $output->writeln('<fg=red> failed</>');
-                            }
+                        $output->write(sprintf('updating file %s', $file));
+                        if (false === file_put_contents($file, Yaml::dump($data, $input->getOption('indent')))) {
+                            $output->writeln('<fg=red> failed</>');
                         } else {
-                            if ($output->isVerbose()) {
-                                $output->writeln('<info> ok</>');
-                            }
+                            $output->writeln('<info> ok</>');
                         }
                     }
                 }
