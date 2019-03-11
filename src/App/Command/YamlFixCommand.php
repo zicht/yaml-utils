@@ -5,6 +5,7 @@
  */
 namespace App\Command;
 
+use App\Transport\Context;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -27,6 +28,7 @@ class YamlFixCommand  extends Command
             ->setDescription('fix or check all yaml files in the given scr dir')
             ->addOption('src', null, InputOption::VALUE_REQUIRED, 'the default source location', getcwd())
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'do an dry-run and print wrong files')
+            ->addOption('dump', null, InputOption::VALUE_NONE, 'dump the new yaml content')
             ->addOption('indent', null, InputOption::VALUE_REQUIRED, 'The level where you switch to inline YAML', 8)
             ->addOption('exclude', null, InputOption::VALUE_IS_ARRAY|InputOption::VALUE_REQUIRED, 'exclude pattern for directories')
             ->addOption('exclude-file', null, InputOption::VALUE_IS_ARRAY|InputOption::VALUE_REQUIRED, 'exclude pattern for files');
@@ -37,10 +39,68 @@ class YamlFixCommand  extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $this->getApplication()->getLoader()->addPsr4('Symfony\Component\Yaml\\', dirname(__FILE__) . '/../../../lib/yaml-4.2/');
-        $files = [];
+        $sockets = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        switch ($pid = pcntl_fork()) {
+            case -1:
+                throw new \RuntimeException('failed to fork process');
+                break;
+            case 0:
+                $this->child($input, $output, $sockets);
+                break;
+            default:
+                $this->parent($input, $output, $sockets, $pid);
+                break;
+        }
+    }
 
-        /** @var \Symfony\Component\Finder\SplFileInfo $file */
+    /**
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @param array $sockets
+     */
+    private function child(InputInterface $input, OutputInterface $output, $sockets)
+    {
+        $this->getApplication()->getLoader()->addPsr4('Symfony\Component\Yaml\\', dirname(__FILE__) . '/../../../lib/yaml-2.3/');
+        fclose($sockets[1]);
+        $handler = function($signo, $signinfo) use ($sockets, $output) {
+            switch ($signo) {
+                case SIGUSR1:
+                    $ctx = Context::newFromResource($sockets[0]);
+                    try {
+                        $ctx->addContext('parsed', Yaml::parse(file_get_contents($ctx->getContext('file'))));
+                    } catch (ParseException $e) {
+                        $ctx->setState(Context::STATE_ERROR)->addContext('error', $e->getMessage());
+                    }
+                    $ctx->write($sockets[0]);
+                    break;
+                case SIGINT:
+                    $output->writeln('received stop signal for child process');
+                    fclose($sockets[0]);
+                    exit(0);
+                    break;
+            }
+        };
+        pcntl_signal(SIGUSR1, $handler);
+        pcntl_signal(SIGINT, $handler);
+        while (!feof($sockets[0])) {
+            pcntl_signal_dispatch();
+            // set to 10 seconds because when
+            // signaled sleep will be interrupted
+            sleep(10);
+        }
+    }
+
+    /**
+     * @param InputInterface $input
+     * @param OutputInterface $output
+     * @param array $sockets
+     * @param int $pid
+     */
+    private function parent(InputInterface $input, OutputInterface $output, $sockets, $pid)
+    {
+        $this->getApplication()->getLoader()->addPsr4('Symfony\Component\Yaml\\', dirname(__FILE__) . '/../../../lib/yaml-4.2/');
+        fclose($sockets[0]);
+        $output->writeln(sprintf('successfully forked process (child pid %d)', $pid));
         foreach ($this->getFinder($input) as $file) {
             try {
                 Yaml::parse($file->getContents());
@@ -48,59 +108,32 @@ class YamlFixCommand  extends Command
                     $output->writeln(sprintf('file %s <info>ok</info>', (string)$file));
                 }
             } catch (ParseException $e) {
-                $output->writeln(sprintf('<fg=red>error parsing file %s</>', (string)$file));
-                $files[] = $file;
-            }
-        }
-
-        if (!$input->getOption('dry-run') && (bool)count($files)) {
-            $this->updateFiles($input, $output, $files);
-        }
-    }
-
-    /**
-     * @param InputInterface $input
-     * @param OutputInterface $output
-     * @param string[] ...$file
-     */
-    private function updateFiles(InputInterface $input, OutputInterface $output, string ...$file)
-    {
-        $process = new Process(
-            sprintf(
-                '%s dump-file %s',
-                $this->getApplication()->getBinName(),
-                implode(
-                    ' ',
-                    array_map(
-                        'escapeshellarg',
-                        $file
-                    )
-                )
-            )
-        );
-
-        if ($process->run() !== 0) {
-            throw new \RuntimeException($process->getErrorOutput());
-        } else {
-            if (false === $data = unserialize($process->getOutput())) {
-                throw new \RuntimeException('Failed unserialize dump output');
-            }
-            if (isset($data[1])) {
-                foreach ($data[1] as $file => $error) {
-                    $output->writeln(sprintf('<fg=red>failed to dump file: %s, %s</>', $file, $error));
-                }
-            }
-            if (isset($data[0])) {
-                foreach ($data[0] as $file => $data) {
+                $output->writeln(sprintf('<fg=yellow>error parsing file %s</>', (string)$file));
+                $ctx = new Context(['file' => (string)$file]);
+                $ctx->write($sockets[1]);
+                posix_kill($pid, SIGUSR1);
+                $ctx->read($sockets[1]);
+                if (Context::STATE_ERROR === $ctx->getState()) {
+                    $output->writeln(sprintf('<fg=red>failed to dump file: %s, %s</>', $file, $ctx->getContext('error')));
+                } else {
                     $output->write(sprintf('updating file %s', $file));
-                    if (false === file_put_contents($file, Yaml::dump($data, $input->getOption('indent')))) {
-                        $output->writeln('<fg=red> failed</>');
+                    if ($input->getOption('dry-run')) {
+                        $output->writeln('<comment> ok (written 0 bytes)</>');
                     } else {
-                        $output->writeln('<info> ok</>');
+                        if (false === $s = file_put_contents($file, Yaml::dump($ctx->getContext('parsed'), $input->getOption('indent')))) {
+                            $output->writeln('<fg=red> failed</>');
+                        } else {
+                            $output->writeln(sprintf('<info> ok (written %d bytes)</>', $s));
+                        }
+                    }
+                    if ($input->getOption('dump')) {
+                        $output->writeln(Yaml::dump($ctx->getContext('parsed'), $input->getOption('indent')));
                     }
                 }
             }
         }
+        posix_kill($pid, SIGINT);
+        pcntl_wait($status);
     }
 
     /**

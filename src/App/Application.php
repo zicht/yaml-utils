@@ -14,14 +14,15 @@ class Application extends BaseApplication
 {
     /** @var ClassLoader */
     private $loader;
-    /** @var string */
-    private $binName;
 
-    public function __construct(ClassLoader $loader, string $binName)
+    /**
+     * Application constructor.
+     * @param ClassLoader $loader
+     */
+    public function __construct(ClassLoader $loader)
     {
         parent::__construct('yaml-utils', '1.0.0');
         $this->loader = $loader;
-        $this->binName = $binName;
     }
 
     /**
@@ -31,13 +32,6 @@ class Application extends BaseApplication
     {
         return $this->loader;
     }
-    /**
-     * @return string
-     */
-    public function getBinName(): string
-    {
-        return $this->binName;
-    }
 
     /**
      * @inheritdoc
@@ -45,10 +39,7 @@ class Application extends BaseApplication
     protected function getDefaultCommands() :array
     {
         $commands = parent::getDefaultCommands();
-        $commands[] = new Command\DumpFileCommand();
         $commands[] = new Command\YamlFixCommand();
         return $commands;
     }
-
-
 }
