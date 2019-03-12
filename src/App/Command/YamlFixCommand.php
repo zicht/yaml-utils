@@ -27,7 +27,7 @@ class YamlFixCommand  extends Command
         $this
             ->setDescription('fix or check all yaml files in the given scr dir')
             ->addOption('src', null, InputOption::VALUE_REQUIRED, 'the default source location', getcwd())
-            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'do an dry-run and print wrong files')
+            ->addOption('dry-run', null, InputOption::VALUE_NONE, 'do an dry-run')
             ->addOption('dump', null, InputOption::VALUE_NONE, 'dump the new yaml content')
             ->addOption('indent', null, InputOption::VALUE_REQUIRED, 'The level where you switch to inline YAML', 8)
             ->addOption('exclude', null, InputOption::VALUE_IS_ARRAY|InputOption::VALUE_REQUIRED, 'exclude pattern for directories')
@@ -74,7 +74,7 @@ class YamlFixCommand  extends Command
                     $ctx->write($sockets[0]);
                     break;
                 case SIGINT:
-                    $output->writeln('received stop signal for child process');
+                    $output->writeln(sprintf('received exit signal, stopping child process (#%s)', posix_getpid()));
                     fclose($sockets[0]);
                     exit(0);
                     break;
@@ -101,6 +101,9 @@ class YamlFixCommand  extends Command
         $this->getApplication()->getLoader()->addPsr4('Symfony\Component\Yaml\\', dirname(__FILE__) . '/../../../lib/yaml-4.2/');
         fclose($sockets[0]);
         $output->writeln(sprintf('successfully forked process (child pid %d)', $pid));
+        $isDryRun = $input->getOption('dry-run');
+        $isDump = $input->getOption('dump');
+        $hasXdiff = function_exists('xdiff_string_diff');
         foreach ($this->getFinder($input) as $file) {
             try {
                 Yaml::parse($file->getContents());
@@ -116,24 +119,27 @@ class YamlFixCommand  extends Command
                 if (Context::STATE_ERROR === $ctx->getState()) {
                     $output->writeln(sprintf('<fg=red>failed to dump file: %s, %s</>', $file, $ctx->getContext('error')));
                 } else {
-                    $output->write(sprintf('updating file %s', $file));
-                    if ($input->getOption('dry-run')) {
-                        $output->writeln('<comment> ok (written 0 bytes)</>');
-                    } else {
+                    if (!$isDryRun) {
+                        $output->write(sprintf('<fg=cyan>updating file %s</>', $file));
                         if (false === $s = file_put_contents($file, Yaml::dump($ctx->getContext('parsed'), $input->getOption('indent')))) {
                             $output->writeln('<fg=red> failed</>');
                         } else {
                             $output->writeln(sprintf('<info> ok (written %d bytes)</>', $s));
                         }
                     }
-                    if ($input->getOption('dump')) {
+                    if (($isDump || $isDryRun) && $hasXdiff) {
+                        $output->writeln(\xdiff_string_diff(file_get_contents($file), Yaml::dump($ctx->getContext('parsed'), $input->getOption('indent'))));
+                    }
+                    if ($isDump && !$hasXdiff) {
                         $output->writeln(Yaml::dump($ctx->getContext('parsed'), $input->getOption('indent')));
                     }
                 }
             }
         }
         posix_kill($pid, SIGINT);
-        pcntl_wait($status);
+        $output->writeln('waiting for child to exit');
+        $cid = pcntl_wait($status);
+        $output->writeln(sprintf('child #%s finished', $cid));
     }
 
     /**
@@ -146,15 +152,12 @@ class YamlFixCommand  extends Command
             ->name('/\.y(a)?ml$/')
             ->in($input->getOption('src'))
             ->files();
-
         foreach ($input->getOption('exclude') as $excluded) {
             $finder->notPath($excluded);
         }
-
         foreach ($input->getOption('exclude-file') as $excluded) {
             $finder->notName($excluded);
         }
-
         return $finder;
     }
 }

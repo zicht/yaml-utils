@@ -19,8 +19,23 @@ or to validate
 ```
 ./bin/yaml-fix \
     --dry-run \
-    --dump \
     --src /var/www/domains/site.nl \
     --exclude '/build|vendor|node_modules/' \
     --exclude-file '/(sass-lint|docker-compose|z2)\.yml/'
 ```
+
+when xdiff is install it will output something like:
+
+```
+...
+error parsing file /var/www/domains/site.nl/src/Zicht/Bundle/ExampletBundle/Resources/config/routing.yml
+@@ -1,3 +1,3 @@
+ zicht_example:
+-    resource: @ZichtExampleBundle/Controller/
+-    type: annotation
+\ No newline at end of file
++    resource: '@ZichtExampleBundle/Controller/'
++    type: annotation
+...
+```
+

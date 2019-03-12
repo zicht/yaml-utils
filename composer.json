@@ -28,5 +28,8 @@
         "post-update-cmd": [
             "git submodule update --init"
         ]
+    },
+    "suggest": {
+        "ext-xdiff": "Needed for dumping (diff) patches when dry-run or dump provided"
     }
 }
