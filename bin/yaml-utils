@@ -1,0 +1,8 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+/** @var \Composer\Autoload\ClassLoader $loader */
+$loader = require_once dirname(__FILE__) . '/../vendor/autoload.php';
+
+(new \App\Application($loader))->run();

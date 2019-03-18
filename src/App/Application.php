@@ -40,6 +40,7 @@ class Application extends BaseApplication
     {
         $commands = parent::getDefaultCommands();
         $commands[] = new Command\YamlFixCommand();
+        $commands[] = new Command\YamlSortCommand();
         return $commands;
     }
 }
