@@ -112,7 +112,7 @@ class YamlFixCommand extends AbstractYamlFileCommand
                     $output->writeln(sprintf('file %s <info>ok</info>', (string)$file));
                 }
             } catch (ParseException $e) {
-                $output->writeln(sprintf('<fg=yellow>error parsing file %s</>', (string)$file));
+                $output->writeln(sprintf('<fg=yellow>failed parsing file %s</>', (string)$file));
                 $ctx = new Context(['file' => (string)$file]);
                 $ctx->write($sockets[1]);
                 posix_kill($pid, SIGUSR1);
